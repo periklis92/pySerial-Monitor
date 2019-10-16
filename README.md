@@ -1,2 +1,5 @@
 # pySerial-Monitor
-A Serial Monitor that I wrote in python.
+A simple Serial Monitor that I wrote in python.
+I used the curses module and I tested in Linux.
+It is pretty modifiable I made it having in mind my own AVR projects. I basically wanted a simple way to communicate with an AVR device through a serial port.
+Once you run it you can press ENTER and enter any text to send through the port and press enter again.
