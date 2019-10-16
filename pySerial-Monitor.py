@@ -1,4 +1,7 @@
 #!/usr/bin/env python3
+#Serial Monitor (only tested with AVR)
+#Version 0.1
+#Written by: Periklis Stinis
 import sys
 import serial
 import curses
