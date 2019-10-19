@@ -1,14 +1,11 @@
 #!/usr/bin/env python3
-#Serial Monitor (only tested with AVR)
-#Version 0.1
-#Written by: Periklis Stinis
 import sys
 import serial
 import curses
 import curses.panel
 import time
 import threading
-
+import array
 from curses import wrapper
 from curses.textpad import Textbox, rectangle
 
@@ -16,13 +13,20 @@ from curses.textpad import Textbox, rectangle
 class SerialMonitor(object):
     def __init__(self, stdscr, port=None, baud=9600, bytesize=8, parity=serial.PARITY_NONE, stopbits=serial.STOPBITS_TWO, timeout=None):
         try:
+            self.port=port
+            self.baud=baud
+            self.bytesize=bytesize
+            self.parity=parity
+            self.stopbits=stopbits
+            self.timeout=timeout
             self.ser=None
+
             self.init_curses() #Initialize curses module and necessary windows
 
-            self.setup_serial(port, baud, bytesize, parity, stopbits, timeout) #Initialize serial connection
+            self.setup_serial() #Initialize serial connection
 
             #Initial message if all went well
-            self.mainWin_print("Welcome to PySerial Monitor (Designed for AVR devices.) Press \'UP\' and \'DOWN\' keys to navigate, \n\'Enter\' to enter edit mode, \
+            self.mainWin_print("Welcome to PySerial Monitor (Designed for AVR devices.) Press \'UP\' and \'DOWN\' keys to navigate, \'Enter\' to enter edit mode, \
 \'Ctrl+C\' to exit edit mode or quit the program if you're not in edit mode", timestamp=False)
 
             #Start a thread to read from serial port
@@ -39,11 +43,9 @@ class SerialMonitor(object):
     def init_curses(self):
         curses.curs_set(0) #Hide the cursor
         curses.doupdate()
-        self.BUFFER=1000 #The maximum size of the messages that the program will keep in the array
-        self.CONTENTS=['' for i in range(self.BUFFER)] #The array that keeps all entries to the console
-        self.CONTENTS_PTR=0 #Current last message shown to the console
+        self.MAX_CONTENTS=100 #The maximum size of the messages that the program will keep in the array
+        self.CONTENTS=[] #The array that keeps all entries to the console
         self.CUR_LINE=0 #Current line to be written
-        self.NUM_CONTENTS=0 #How much of the contents array is full
         self.stdscr = stdscr
         curses.start_color() #Init colours
         curses.init_pair(1, curses.COLOR_WHITE, curses.COLOR_BLACK)
@@ -54,36 +56,48 @@ class SerialMonitor(object):
         self.stdscr.bkgd(' ', curses.color_pair(1))
         self.stdscr.refresh()
 
-    def mainWin_print(self, msg, timestamp=True):
+    def mainWin_print(self, msg="", timestamp=True, bold=False):
         #Function to print at the main output window
-        x = msg.split('\n') #Splits the message if new line char is present
-        self.CONTENTS_PTR=self.NUM_CONTENTS
-        for i in range(len(x)): #Write each line
-            if timestamp:
-                new_msg = self.time_stamp() + str(x[i])
+        if timestamp:msg=self.time_stamp()+msg
+        x = msg.find('\n') #Splits the message if new line char is present
+        newstr=""
+        leftovers=""
+        if x!=-1:
+            newstr=msg[:x]
+            leftovers=msg[x+1:]
+        else:
+            if len(msg)>curses.COLS:
+                newstr = msg[:curses.COLS]
+                leftovers=msg[len(newstr):]
             else:
-                new_msg = str(x[i])
-            self.CONTENTS[self.CONTENTS_PTR] = new_msg
-            self.CONTENTS_PTR+= 1
-            self.NUM_CONTENTS+=1
-            if (self.CUR_LINE<curses.LINES-1):
-                self.CUR_LINE+= 1
+                newstr=msg
+        self.CONTENTS.append( newstr)
+        if len(self.CONTENTS)>self.MAX_CONTENTS:self.CONTENTS.pop(0)
+        if (self.CUR_LINE!=self.MAX_CONTENTS): self.CUR_LINE+= 1
         self.reveal_contents()
+        if leftovers!="":
+            self.mainWin_print(msg=leftovers, timestamp=False)
+
 
     def reveal_contents(self):
         #Print the messages from the contents array based on the current position of the console
         self.mainWin.clear()
-        if self.CONTENTS_PTR>curses.LINES-1:
+        if len(self.CONTENTS)>curses.LINES-1:
             for i in range (curses.LINES-1):
-                self.mainWin.addstr(i, 0, self.CONTENTS[(self.CONTENTS_PTR-self.CUR_LINE)+i])
+                self.mainWin.addstr(i, 0, self.CONTENTS[self.CUR_LINE-curses.LINES+i+1])
         else:
-            for i in range (self.CONTENTS_PTR):
+            for i in range (len(self.CONTENTS)):
                 self.mainWin.addstr(i, 0, self.CONTENTS[i])
         self.mainWin.refresh()
         self.mainWin_panel.show()
         self.inputWin_panel.show()
         curses.panel.update_panels()
         curses.doupdate()
+
+    def shift_contents(self):
+        for i in range(self.BUFFER-2):
+            self.CONTENTS[i]=self.CONTENTS[i+1]
+        self.CONTENTS[self.BUFFER-1]=""
 
     def create_panel(self, lines, cols, x, y, color, top=False):
         #Fuction that creates a new window+panel
@@ -99,17 +113,18 @@ class SerialMonitor(object):
         win.refresh()
         return win, win_panel
 
-    def setup_serial(self, port, baud, bytesize, parity, stopbits, timeout):
+    def setup_serial(self):
         #The fuction that initializes the serial port
-        if port==None:
+        if self.port==None:
             portname = "/dev/ttyUSB"
             while self.ser==None:
                 if self.ser:
                     break
                 for i in range(0, 64):
                     try:
-                        port = portname + str(i)
-                        self.ser = serial.Serial(port, baudrate=baud, bytesize=bytesize, parity=parity, stopbits=stopbits, timeout=timeout)
+                        self.port = portname + str(i)
+                        self.ser = serial.Serial(self.port, baudrate=self.baud, bytesize=self.bytesize, parity=self.parity, \
+                        stopbits=self.stopbits, timeout=self.timeout)
                         self.mainWin_print("Connected to port:" + self.ser.name + '\r')
                         break
                     except:
@@ -129,7 +144,8 @@ class SerialMonitor(object):
                         sys.exit(1)
         else:
             try:
-                self.ser = serial.Serial(port, baudrate=baud, bytesize=bytesize, parity=parity, stopbits=stopbits, timeout=timeout)
+                self.ser = serial.Serial(port, baudrate=self.baud, bytesize=self.bytesize, parity=self.parity, \
+                    stopbits=self.stopbits, timeout=self.timeout)
             except:
                 curses.endwin()
                 sys.exit(1)
@@ -159,12 +175,12 @@ class SerialMonitor(object):
                         self.inputWin.clear()
                         self.inputWin.refresh()
                 elif keyP == curses.KEY_UP: #If not in edit mode go up...
-                    if (self.CONTENTS_PTR>=curses.LINES):
-                        self.CONTENTS_PTR-=1
+                    if (self.CUR_LINE>=curses.LINES):
+                        self.CUR_LINE-=1
                         self.reveal_contents()
                 elif keyP == curses.KEY_DOWN: #...or down in the console to look through messages
-                    if (self.CONTENTS_PTR<self.NUM_CONTENTS):
-                        self.CONTENTS_PTR+=1
+                    if (self.CUR_LINE<len(self.CONTENTS)):
+                        self.CUR_LINE+=1
                         self.reveal_contents()
             except KeyboardInterrupt: #Crtl+C is pressed and the interrupt needs to be handled
                 self.inputWin.clear()
