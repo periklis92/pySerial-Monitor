@@ -13,6 +13,7 @@ from curses.textpad import Textbox, rectangle
 class SerialMonitor(object):
     def __init__(self, stdscr, port=None, baud=9600, bytesize=8, parity=serial.PARITY_NONE, stopbits=serial.STOPBITS_TWO, timeout=None):
         try:
+            self.terminationchar=b'\n'
             self.port=port
             self.baud=baud
             self.bytesize=bytesize
@@ -20,14 +21,13 @@ class SerialMonitor(object):
             self.stopbits=stopbits
             self.timeout=timeout
             self.ser=None
-
             self.init_curses() #Initialize curses module and necessary windows
 
             self.setup_serial() #Initialize serial connection
 
             #Initial message if all went well
             self.mainWin_print("Welcome to PySerial Monitor (Designed for AVR devices.) Press \'UP\' and \'DOWN\' keys to navigate, \'Enter\' to enter edit mode, \
-\'Ctrl+C\' to exit edit mode or quit the program if you're not in edit mode", timestamp=False)
+\'Ctrl+C\' to exit edit mode or quit the program if you're not in edit mode. Type .help for more options", timestamp=False)
 
             #Start a thread to read from serial port
             if self.ser!=None:
@@ -71,7 +71,7 @@ class SerialMonitor(object):
                 leftovers=msg[len(newstr):]
             else:
                 newstr=msg
-        self.CONTENTS.append( newstr)
+        self.CONTENTS.append(newstr)
         if len(self.CONTENTS)>self.MAX_CONTENTS:self.CONTENTS.pop(0)
         if (self.CUR_LINE!=self.MAX_CONTENTS): self.CUR_LINE+= 1
         self.reveal_contents()
@@ -154,8 +154,8 @@ class SerialMonitor(object):
         #The that is reading messages from the serial port
         #The default C null character is used as a termination character
         while True:
-            bytesRead = self.ser.read_until(b'\0')
-            s = str(bytesRead, 'ascii').replace('\0', '')
+            bytesRead = self.ser.read_until(self.terminationchar)
+            s = str(bytesRead, 'ascii').replace('\0', '').replace(str(self.terminationchar), '')
             self.mainWin_print(s)
 
     def main_handler(self):
@@ -169,11 +169,15 @@ class SerialMonitor(object):
                         self.box = Textbox(self.inputWin)
                         self.box.edit()
                         message = self.box.gather()
-                        self.mainWin_print("-> " + message)
-                        if self.ser!=None:
-                            self.send_bytes(message)
-                        self.inputWin.clear()
-                        self.inputWin.refresh()
+                        if len(message)>0:
+                            if message[0]==".":
+                                self.parse_cmd(message)
+                            else:
+                                self.mainWin_print("-> " + message)
+                                if self.ser!=None:
+                                    self.send_bytes(message)
+                            self.inputWin.clear()
+                            self.inputWin.refresh()
                 elif keyP == curses.KEY_UP: #If not in edit mode go up...
                     if (self.CUR_LINE>=curses.LINES):
                         self.CUR_LINE-=1
@@ -191,9 +195,47 @@ class SerialMonitor(object):
                     break
                 continue
 
+    def parse_cmd(self, cmd=""):
+        option=cmd[1:cmd.find('=')]
+        if option!=-1:
+            if option!="help":
+                try:
+                    value=int(cmd[cmd.find('=')+1:])
+                except ValueError:
+                    self.mainWin_print("Value Error!")
+                    return
+        if option=="baud":
+            try:
+                self.ser.baudrate=int(value)
+            except:
+                self.mainWin_print("Baud Rate Error! Wrong Value!")
+        elif option=="parity":
+            if value==0:
+                self.ser.parity=serial.PARITY_NONE
+            elif value==1:
+                self.ser.parity=serial.PARITY_ODD
+            elif value==2:
+                self.ser.parity=serial.PARITY_EVEN
+            else:
+                self.mainWin_print("Parity Error! Not an available option")
+        elif option=="bytesize":
+            try:
+                self.ser.bytesize=int(value)
+            except:
+                self.mainWin_print("Byte Size Error!Wrong Value!")
+        elif option=="stopbits":
+            try:
+                self.ser.stopbits=int(value)
+            except:
+                self.mainWin_print("Stopbits Error! Unknown Error!")
+        elif option=="help":
+            self.mainWin_print(".baud=value to change the baud rate\n.parity=value to change the parity (0=NONE, 1=ODD, 2=EVEN)\n\
+.bytesize=value to change the bytesize\n.stopbits to change the stopbits (0, 1)", False)
+        else: self.mainWin_print("Invalid command")
+
     def send_bytes(self, string):
         #Send the message written to the device with a null termination character
-        self.ser.write(str.encode(string)+(b'\0'))
+        self.ser.write(str.encode(string)+self.terminationchar)
 
     def time_stamp(self):
         #Return current time (H:M:S) in string format
