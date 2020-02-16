@@ -1,4 +1,6 @@
 # pySerial-Monitor
+Prerequisites: <br><ol> <li>python3</li> <br>
+                <li>pyserial</li></ol><br>
 A simple Serial Monitor that I wrote in python.
 I used the curses module and I tested in Linux.
 It is pretty modifiable I made it having in mind my own AVR projects. I basically wanted a simple way to communicate with an AVR device through a serial port.
